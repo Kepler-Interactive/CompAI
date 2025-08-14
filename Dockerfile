@@ -78,8 +78,17 @@ COPY --from=app-builder /app/package.json ./
 COPY --from=app-builder /app/node_modules ./node_modules
 COPY --from=app-builder /app/packages ./packages
 
+# Create a startup script that runs DB setup and then the app
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'echo "Checking Verification table..."' >> /start.sh && \
+    echo 'psql "$DATABASE_URL" -tAc "SELECT 1 FROM \\"Verification\\" LIMIT 1" >/dev/null 2>&1 || (cd /app/packages/db && bunx prisma db push --accept-data-loss --schema prisma/schema.prisma)' >> /start.sh && \
+    echo 'cd /app/packages/db && bunx prisma migrate deploy --schema prisma/schema.prisma' >> /start.sh && \
+    echo 'echo "Starting application..."' >> /start.sh && \
+    echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
+    chmod +x /start.sh
+
 EXPOSE 3000
-CMD ["bun", "run", "--cwd", "apps/app", "start"]
+CMD ["/start.sh"]
 
 # =============================================================================
 # STAGE 5: Portal Builder
