@@ -23,7 +23,7 @@ COPY apps/app/package.json ./apps/app/
 COPY apps/portal/package.json ./apps/portal/
 
 # Install all dependencies
-RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true bun install --frozen-lockfile
+RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true bun install
 
 # =============================================================================
 # STAGE 2: Ultra-Minimal Migrator - Only Prisma
