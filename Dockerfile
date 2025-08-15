@@ -80,10 +80,25 @@ COPY --from=app-builder /app/packages ./packages
 # Set working directory to the app
 WORKDIR /app/apps/app
 
-# Create a startup script that runs migrations then starts the app
+# Create a startup script that runs migrations, seeds, then starts the app
 RUN echo '#!/bin/sh' > /startup.sh && \
     echo 'echo "Running database migrations..."' >> /startup.sh && \
     echo 'cd /app/packages/db && npx prisma db push --skip-generate --accept-data-loss || echo "Migration failed, continuing anyway..."' >> /startup.sh && \
+    echo '' >> /startup.sh && \
+    echo 'echo "Checking for seed script..."' >> /startup.sh && \
+    echo 'if [ -f "/app/packages/db/seed.ts" ] || [ -f "/app/packages/db/seed.js" ] || [ -f "/app/packages/db/seed.mjs" ]; then' >> /startup.sh && \
+    echo '  echo "Running database seed..."' >> /startup.sh && \
+    echo '  cd /app/packages/db && npx prisma db seed || echo "Seed failed or already seeded"' >> /startup.sh && \
+    echo 'else' >> /startup.sh && \
+    echo '  echo "No seed file found, checking package.json for seed command..."' >> /startup.sh && \
+    echo '  cd /app/packages/db' >> /startup.sh && \
+    echo '  if grep -q "db:seed" package.json; then' >> /startup.sh && \
+    echo '    bun run db:seed || echo "Seed command failed"' >> /startup.sh && \
+    echo '  else' >> /startup.sh && \
+    echo '    echo "No seed command found"' >> /startup.sh && \
+    echo '  fi' >> /startup.sh && \
+    echo 'fi' >> /startup.sh && \
+    echo '' >> /startup.sh && \
     echo 'cd /app/apps/app' >> /startup.sh && \
     echo 'echo "Starting Next.js application..."' >> /startup.sh && \
     echo 'exec bun run start' >> /startup.sh && \
