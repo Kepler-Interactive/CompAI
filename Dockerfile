@@ -80,8 +80,17 @@ COPY --from=app-builder /app/packages ./packages
 # Set working directory to the app
 WORKDIR /app/apps/app
 
+# Create a startup script that runs migrations then starts the app
+RUN echo '#!/bin/sh' > /startup.sh && \
+    echo 'echo "Running database migrations..."' >> /startup.sh && \
+    echo 'cd /app/packages/db && npx prisma db push --skip-generate --accept-data-loss || echo "Migration failed, continuing anyway..."' >> /startup.sh && \
+    echo 'cd /app/apps/app' >> /startup.sh && \
+    echo 'echo "Starting Next.js application..."' >> /startup.sh && \
+    echo 'exec bun run start' >> /startup.sh && \
+    chmod +x /startup.sh
+
 # Expose port
 EXPOSE 3000
 
-# Start the Next.js application directly
-CMD ["bun", "run", "start"]
+# Run the startup script
+CMD ["/startup.sh"]
