@@ -35,7 +35,7 @@ FROM node:20-slim AS app-builder
 WORKDIR /app
 
 # Install bun in Node image
-RUN apt-get update && apt-get install -y curl && \
+RUN apt-get update && apt-get install -y curl unzip && \
     curl -fsSL https://bun.sh/install | bash && \
     ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
     rm -rf /var/lib/apt/lists/*
@@ -63,7 +63,7 @@ FROM node:20-slim AS portal-builder
 WORKDIR /app
 
 # Install bun in Node image
-RUN apt-get update && apt-get install -y curl && \
+RUN apt-get update && apt-get install -y curl unzip && \
     curl -fsSL https://bun.sh/install | bash && \
     ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
     rm -rf /var/lib/apt/lists/*
@@ -91,7 +91,7 @@ FROM node:20-slim AS portal-production
 WORKDIR /app
 
 # Install bun
-RUN apt-get update && apt-get install -y curl && \
+RUN apt-get update && apt-get install -y curl unzip && \
     curl -fsSL https://bun.sh/install | bash && \
     ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
     rm -rf /var/lib/apt/lists/*
@@ -143,7 +143,7 @@ FROM node:20-slim
 WORKDIR /app
 
 # Install bun
-RUN apt-get update && apt-get install -y curl && \
+RUN apt-get update && apt-get install -y curl unzip && \
     curl -fsSL https://bun.sh/install | bash && \
     ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
     rm -rf /var/lib/apt/lists/*
