@@ -178,11 +178,18 @@ RUN echo '#!/bin/sh' > /start.sh && \
     echo 'ls -la' >> /start.sh && \
     echo 'echo "Apps directory:"' >> /start.sh && \
     echo 'ls -la apps/' >> /start.sh && \
+    echo 'echo "Package.json content:"' >> /start.sh && \
+    echo 'cat package.json' >> /start.sh && \
+    echo 'echo "Apps/app package.json:"' >> /start.sh && \
+    echo 'cat apps/app/package.json | grep -A5 -B5 scripts' >> /start.sh && \
     echo 'echo "Running database setup..."' >> /start.sh && \
     echo 'cd /app/packages/db && npx prisma db push --accept-data-loss' >> /start.sh && \
-    echo 'echo "Starting application..."' >> /start.sh && \
-    echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
+    echo 'echo "Starting application from apps/app..."' >> /start.sh && \
+    echo 'cd /app/apps/app && exec bun run start' >> /start.sh && \
     chmod +x /start.sh
 
 EXPOSE 3000
-CMD ["/start.sh"]
+
+# Use the app's package.json start script directly
+WORKDIR /app/apps/app
+CMD ["bun", "run", "start"]
