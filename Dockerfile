@@ -77,12 +77,8 @@ WORKDIR /app
 COPY --from=portal-builder /app/package.json ./
 COPY --from=portal-builder /app/bun.lock ./
 
-# Copy the portal app directory structure
-COPY --from=portal-builder /app/apps/portal/package.json ./apps/portal/
-COPY --from=portal-builder /app/apps/portal/.next ./apps/portal/.next
-# Copy any public or static files if they exist
-COPY --from=portal-builder /app/apps/portal/public ./apps/portal/public 2>/dev/null || true
-COPY --from=portal-builder /app/apps/portal/next.config.js ./apps/portal/next.config.js 2>/dev/null || true
+# Copy the entire portal app directory (includes all files)
+COPY --from=portal-builder /app/apps/portal ./apps/portal
 
 # Copy dependencies and packages
 COPY --from=portal-builder /app/node_modules ./node_modules
@@ -122,12 +118,8 @@ WORKDIR /app
 COPY --from=app-builder /app/package.json ./
 COPY --from=app-builder /app/bun.lock ./
 
-# Copy the app directory structure
-COPY --from=app-builder /app/apps/app/package.json ./apps/app/
-COPY --from=app-builder /app/apps/app/.next ./apps/app/.next
-# Copy any public or static files if they exist
-COPY --from=app-builder /app/apps/app/public ./apps/app/public 2>/dev/null || true
-COPY --from=app-builder /app/apps/app/next.config.js ./apps/app/next.config.js 2>/dev/null || true
+# Copy the entire app directory (includes all files)
+COPY --from=app-builder /app/apps/app ./apps/app
 
 # Copy dependencies and packages
 COPY --from=app-builder /app/node_modules ./node_modules
