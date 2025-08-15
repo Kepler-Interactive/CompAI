@@ -73,15 +73,26 @@ FROM oven/bun:1.2.8 AS portal
 
 WORKDIR /app
 
-# Copy the built portal and all necessary dependencies from builder
-COPY --from=portal-builder /app/apps/portal/.next ./apps/portal/.next
-COPY --from=portal-builder /app/apps/portal/package.json ./apps/portal/
+# Copy package files first
 COPY --from=portal-builder /app/package.json ./
+COPY --from=portal-builder /app/bun.lock ./
+
+# Copy the portal app directory structure
+COPY --from=portal-builder /app/apps/portal/package.json ./apps/portal/
+COPY --from=portal-builder /app/apps/portal/.next ./apps/portal/.next
+# Copy any public or static files if they exist
+COPY --from=portal-builder /app/apps/portal/public ./apps/portal/public 2>/dev/null || true
+COPY --from=portal-builder /app/apps/portal/next.config.js ./apps/portal/next.config.js 2>/dev/null || true
+
+# Copy dependencies and packages
 COPY --from=portal-builder /app/node_modules ./node_modules
 COPY --from=portal-builder /app/packages ./packages
 
+# Ensure the working directory exists
+WORKDIR /app/apps/portal
+
 EXPOSE 3000
-CMD ["bun", "run", "--cwd", "apps/portal", "start"]
+CMD ["bun", "run", "start"]
 
 # =============================================================================
 # STAGE 5: App Builder
@@ -107,10 +118,18 @@ FROM oven/bun:1.2.8 AS app
 
 WORKDIR /app
 
-# Copy the built app and all necessary dependencies from builder
-COPY --from=app-builder /app/apps/app/.next ./apps/app/.next
-COPY --from=app-builder /app/apps/app/package.json ./apps/app/
+# Copy package files first
 COPY --from=app-builder /app/package.json ./
+COPY --from=app-builder /app/bun.lock ./
+
+# Copy the app directory structure
+COPY --from=app-builder /app/apps/app/package.json ./apps/app/
+COPY --from=app-builder /app/apps/app/.next ./apps/app/.next
+# Copy any public or static files if they exist
+COPY --from=app-builder /app/apps/app/public ./apps/app/public 2>/dev/null || true
+COPY --from=app-builder /app/apps/app/next.config.js ./apps/app/next.config.js 2>/dev/null || true
+
+# Copy dependencies and packages
 COPY --from=app-builder /app/node_modules ./node_modules
 COPY --from=app-builder /app/packages ./packages
 
@@ -119,7 +138,7 @@ RUN echo '#!/bin/sh' > /start.sh && \
     echo 'echo "Running database setup..."' >> /start.sh && \
     echo 'cd /app/packages/db && bunx prisma db push --accept-data-loss' >> /start.sh && \
     echo 'echo "Starting application..."' >> /start.sh && \
-    echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
+    echo 'cd /app/apps/app && exec bun run start' >> /start.sh && \
     chmod +x /start.sh
 
 EXPOSE 3000
