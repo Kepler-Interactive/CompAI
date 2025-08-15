@@ -3,6 +3,8 @@
 # =============================================================================
 FROM oven/bun:1.2.8 AS deps
 
+ENV REBUILD_DATE="2025-08-15"
+
 WORKDIR /app
 
 # Copy workspace configuration
