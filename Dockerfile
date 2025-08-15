@@ -38,8 +38,11 @@ WORKDIR /app
 COPY packages ./packages
 COPY apps/app ./apps/app
 
-# Generate Prisma client in the full workspace context
-RUN cd packages/db && bunx prisma generate
+# Install npm for Prisma generation (workaround for Bun crash)
+RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
+
+# Generate Prisma client using npx instead of bunx
+RUN cd packages/db && npx prisma generate
 
 # Build the app
 RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
@@ -55,8 +58,11 @@ WORKDIR /app
 COPY packages ./packages
 COPY apps/portal ./apps/portal
 
-# Generate Prisma client
-RUN cd packages/db && bunx prisma generate
+# Install npm for Prisma generation (workaround for Bun crash)
+RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
+
+# Generate Prisma client using npx instead of bunx
+RUN cd packages/db && npx prisma generate
 
 # Build the portal
 RUN cd apps/portal && SKIP_ENV_VALIDATION=true bun run build
@@ -98,17 +104,20 @@ WORKDIR /app
 # Copy Prisma schema and migration files
 COPY packages/db/prisma ./packages/db/prisma
 
+# Install npm for Prisma (workaround for Bun crash)
+RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
+
 # Create minimal package.json for Prisma
 RUN echo '{"name":"migrator","type":"module","dependencies":{"prisma":"^6.13.0","@prisma/client":"^6.13.0"}}' > package.json
 
-# Install ONLY Prisma dependencies
-RUN bun install
+# Install ONLY Prisma dependencies using npm
+RUN npm install
 
 # Generate Prisma client
-RUN cd packages/db && bunx prisma generate
+RUN cd packages/db && npx prisma generate
 
 # Default command for migrations
-CMD ["bunx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
+CMD ["npx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
 
 # =============================================================================
 # FINAL STAGE: App Production (DEFAULT - This is the default/final stage)
@@ -116,6 +125,9 @@ CMD ["bunx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.
 FROM oven/bun:1.2.8
 
 WORKDIR /app
+
+# Install npm for Prisma at build time
+RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
 
 # Copy package files first
 COPY --from=app-builder /app/package.json ./
@@ -131,10 +143,10 @@ COPY --from=app-builder /app/packages ./packages
 # Debug: List contents to verify structure
 RUN ls -la /app && ls -la /app/apps && ls -la /app/apps/app
 
-# Simple start script using bunx for migrations
+# Simple start script using npx for migrations
 RUN echo '#!/bin/sh' > /start.sh && \
     echo 'echo "Running database setup..."' >> /start.sh && \
-    echo 'cd /app/packages/db && bunx prisma db push --accept-data-loss' >> /start.sh && \
+    echo 'cd /app/packages/db && npx prisma db push --accept-data-loss' >> /start.sh && \
     echo 'echo "Starting application..."' >> /start.sh && \
     echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
     chmod +x /start.sh
