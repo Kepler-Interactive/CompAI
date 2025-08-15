@@ -190,24 +190,33 @@ RUN echo '#!/bin/sh' > /start.sh && \
 
 EXPOSE 3000
 
-# Override everything with a debug script
+# Override everything with a debug script that doesn't start the app yet
 RUN echo '#!/bin/sh' > /debug.sh && \
     echo 'echo "=== CONTAINER STARTED ==="' >> /debug.sh && \
-    echo 'echo "CMD arguments: $@"' >> /debug.sh && \
-    echo 'echo "Environment variables related to start:"' >> /debug.sh && \
-    echo 'env | grep -i start || true' >> /debug.sh && \
-    echo 'env | grep -i railway || true' >> /debug.sh && \
-    echo 'env | grep -i cmd || true' >> /debug.sh && \
-    echo 'env | grep -i port || true' >> /debug.sh && \
+    echo 'echo "Process that started this: $(ps -p $ -o comm=)"' >> /debug.sh && \
+    echo 'echo "All processes running:"' >> /debug.sh && \
+    echo 'ps aux' >> /debug.sh && \
+    echo 'echo ""' >> /debug.sh && \
+    echo 'echo "=== ENVIRONMENT VARIABLES ==="' >> /debug.sh && \
+    echo 'env | sort' >> /debug.sh && \
+    echo 'echo ""' >> /debug.sh && \
+    echo 'echo "=== DIRECTORY STRUCTURE ==="' >> /debug.sh && \
     echo 'echo "Current directory: $(pwd)"' >> /debug.sh && \
-    echo 'echo "Checking what bun run start would do:"' >> /debug.sh && \
-    echo 'cd /app && bun run --help' >> /debug.sh && \
-    echo 'echo "Root package.json scripts:"' >> /debug.sh && \
-    echo 'cd /app && cat package.json | grep -A20 scripts' >> /debug.sh && \
-    echo 'echo "App package.json scripts:"' >> /debug.sh && \
-    echo 'cd /app/apps/app && cat package.json | grep -A10 scripts' >> /debug.sh && \
-    echo 'echo "Now starting the actual app..."' >> /debug.sh && \
-    echo 'cd /app/apps/app && exec bun run start' >> /debug.sh && \
+    echo 'echo "Root contents:"' >> /debug.sh && \
+    echo 'ls -la /app/' >> /debug.sh && \
+    echo 'echo "Apps contents:"' >> /debug.sh && \
+    echo 'ls -la /app/apps/' >> /debug.sh && \
+    echo 'echo ""' >> /debug.sh && \
+    echo 'echo "=== PACKAGE.JSON SCRIPTS ==="' >> /debug.sh && \
+    echo 'echo "Root package.json:"' >> /debug.sh && \
+    echo 'cd /app && cat package.json' >> /debug.sh && \
+    echo 'echo ""' >> /debug.sh && \
+    echo 'echo "App package.json:"' >> /debug.sh && \
+    echo 'cd /app/apps/app && cat package.json' >> /debug.sh && \
+    echo 'echo ""' >> /debug.sh && \
+    echo 'echo "=== KEEPING CONTAINER ALIVE FOR DEBUGGING ==="' >> /debug.sh && \
+    echo 'echo "Container will stay alive for inspection. Check logs above."' >> /debug.sh && \
+    echo 'sleep 3600' >> /debug.sh && \
     chmod +x /debug.sh
 
 WORKDIR /app/apps/app
