@@ -110,8 +110,19 @@ COPY --from=portal-builder /app/packages ./packages
 # Start from the app root
 WORKDIR /app
 
+# Add debug to see what's happening
+RUN echo '#!/bin/sh' > /portal-start.sh && \
+    echo 'echo "=== DEBUG: Portal Production Stage ==="' >> /portal-start.sh && \
+    echo 'echo "Current directory: $(pwd)"' >> /portal-start.sh && \
+    echo 'echo "Directory contents:"' >> /portal-start.sh && \
+    echo 'ls -la' >> /portal-start.sh && \
+    echo 'echo "Apps directory:"' >> /portal-start.sh && \
+    echo 'ls -la apps/' >> /portal-start.sh && \
+    echo 'exec bun run --cwd apps/portal start' >> /portal-start.sh && \
+    chmod +x /portal-start.sh
+
 EXPOSE 3000
-CMD ["bun", "run", "--cwd", "apps/portal", "start"]
+CMD ["/portal-start.sh"]
 
 # =============================================================================
 # STAGE 5: Ultra-Minimal Migrator - Only Prisma
@@ -138,7 +149,7 @@ CMD ["npx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.p
 # =============================================================================
 # FINAL STAGE: App Production (DEFAULT - This is the default/final stage)
 # =============================================================================
-FROM node:20-slim
+FROM node:20-slim AS production
 
 WORKDIR /app
 
@@ -161,6 +172,12 @@ COPY --from=app-builder /app/packages ./packages
 
 # Simple start script using npx for migrations
 RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'echo "=== DEBUG: Starting App Production Stage ==="' >> /start.sh && \
+    echo 'echo "Current directory: $(pwd)"' >> /start.sh && \
+    echo 'echo "Directory contents:"' >> /start.sh && \
+    echo 'ls -la' >> /start.sh && \
+    echo 'echo "Apps directory:"' >> /start.sh && \
+    echo 'ls -la apps/' >> /start.sh && \
     echo 'echo "Running database setup..."' >> /start.sh && \
     echo 'cd /app/packages/db && npx prisma db push --accept-data-loss' >> /start.sh && \
     echo 'echo "Starting application..."' >> /start.sh && \
