@@ -3,7 +3,7 @@
 # =============================================================================
 FROM oven/bun:1.2.8 AS deps
 
-ENV REBUILD_DATE="2025-08-15-v2"
+ENV REBUILD_DATE="2025-08-15-v3"
 
 WORKDIR /app
 
@@ -28,7 +28,68 @@ COPY apps/portal/package.json ./apps/portal/
 RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true bun install
 
 # =============================================================================
-# STAGE 2: Ultra-Minimal Migrator - Only Prisma
+# STAGE 2: App Builder
+# =============================================================================
+FROM deps AS app-builder
+
+WORKDIR /app
+
+# Copy all source code needed for build
+COPY packages ./packages
+COPY apps/app ./apps/app
+
+# Generate Prisma client in the full workspace context
+RUN cd packages/db && bunx prisma generate
+
+# Build the app
+RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
+
+# =============================================================================
+# STAGE 3: Portal Builder
+# =============================================================================
+FROM deps AS portal-builder
+
+WORKDIR /app
+
+# Copy all source code needed for build
+COPY packages ./packages
+COPY apps/portal ./apps/portal
+
+# Generate Prisma client
+RUN cd packages/db && bunx prisma generate
+
+# Build the portal
+RUN cd apps/portal && SKIP_ENV_VALIDATION=true bun run build
+
+# =============================================================================
+# STAGE 4: Portal Production (Named stage for explicit selection)
+# =============================================================================
+FROM oven/bun:1.2.8 AS portal-production
+
+WORKDIR /app
+
+# Copy package files first
+COPY --from=portal-builder /app/package.json ./
+COPY --from=portal-builder /app/bun.lock ./
+
+# Copy the entire portal app directory (includes all files)
+COPY --from=portal-builder /app/apps/portal ./apps/portal
+
+# Copy dependencies and packages
+COPY --from=portal-builder /app/node_modules ./node_modules
+COPY --from=portal-builder /app/packages ./packages
+
+# Debug: List contents to verify structure
+RUN ls -la /app && ls -la /app/apps && ls -la /app/apps/portal
+
+# Start from the app root, not apps/portal
+WORKDIR /app
+
+EXPOSE 3000
+CMD ["bun", "run", "--cwd", "apps/portal", "start"]
+
+# =============================================================================
+# STAGE 5: Ultra-Minimal Migrator - Only Prisma
 # =============================================================================
 FROM oven/bun:1.2.8 AS migrator
 
@@ -50,67 +111,9 @@ RUN cd packages/db && bunx prisma generate
 CMD ["bunx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
 
 # =============================================================================
-# STAGE 3: Portal Builder
+# FINAL STAGE: App Production (DEFAULT - This is the default/final stage)
 # =============================================================================
-FROM deps AS portal-builder
-
-WORKDIR /app
-
-# Copy all source code needed for build
-COPY packages ./packages
-COPY apps/portal ./apps/portal
-
-# Generate Prisma client
-RUN cd packages/db && bunx prisma generate
-
-# Build the portal
-RUN cd apps/portal && SKIP_ENV_VALIDATION=true bun run build
-
-# =============================================================================
-# STAGE 4: Portal Production
-# =============================================================================
-FROM oven/bun:1.2.8 AS portal
-
-WORKDIR /app
-
-# Copy package files first
-COPY --from=portal-builder /app/package.json ./
-COPY --from=portal-builder /app/bun.lock ./
-
-# Copy the entire portal app directory (includes all files)
-COPY --from=portal-builder /app/apps/portal ./apps/portal
-
-# Copy dependencies and packages
-COPY --from=portal-builder /app/node_modules ./node_modules
-COPY --from=portal-builder /app/packages ./packages
-
-# Ensure the working directory exists
-WORKDIR /app/apps/portal
-
-EXPOSE 3000
-CMD ["bun", "run", "start"]
-
-# =============================================================================
-# STAGE 5: App Builder
-# =============================================================================
-FROM deps AS app-builder
-
-WORKDIR /app
-
-# Copy all source code needed for build
-COPY packages ./packages
-COPY apps/app ./apps/app
-
-# Generate Prisma client in the full workspace context
-RUN cd packages/db && bunx prisma generate
-
-# Build the app
-RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
-
-# =============================================================================
-# STAGE 6: App Production (DEFAULT - This is now last!)
-# =============================================================================
-FROM oven/bun:1.2.8 AS app
+FROM oven/bun:1.2.8
 
 WORKDIR /app
 
@@ -125,12 +128,15 @@ COPY --from=app-builder /app/apps/app ./apps/app
 COPY --from=app-builder /app/node_modules ./node_modules
 COPY --from=app-builder /app/packages ./packages
 
+# Debug: List contents to verify structure
+RUN ls -la /app && ls -la /app/apps && ls -la /app/apps/app
+
 # Simple start script using bunx for migrations
 RUN echo '#!/bin/sh' > /start.sh && \
     echo 'echo "Running database setup..."' >> /start.sh && \
     echo 'cd /app/packages/db && bunx prisma db push --accept-data-loss' >> /start.sh && \
     echo 'echo "Starting application..."' >> /start.sh && \
-    echo 'cd /app/apps/app && exec bun run start' >> /start.sh && \
+    echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
     chmod +x /start.sh
 
 EXPOSE 3000
