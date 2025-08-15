@@ -190,6 +190,25 @@ RUN echo '#!/bin/sh' > /start.sh && \
 
 EXPOSE 3000
 
-# Use the app's package.json start script directly
+# Override everything with a debug script
+RUN echo '#!/bin/sh' > /debug.sh && \
+    echo 'echo "=== CONTAINER STARTED ==="' >> /debug.sh && \
+    echo 'echo "CMD arguments: $@"' >> /debug.sh && \
+    echo 'echo "Environment variables related to start:"' >> /debug.sh && \
+    echo 'env | grep -i start || true' >> /debug.sh && \
+    echo 'env | grep -i railway || true' >> /debug.sh && \
+    echo 'env | grep -i cmd || true' >> /debug.sh && \
+    echo 'env | grep -i port || true' >> /debug.sh && \
+    echo 'echo "Current directory: $(pwd)"' >> /debug.sh && \
+    echo 'echo "Checking what bun run start would do:"' >> /debug.sh && \
+    echo 'cd /app && bun run --help' >> /debug.sh && \
+    echo 'echo "Root package.json scripts:"' >> /debug.sh && \
+    echo 'cd /app && cat package.json | grep -A20 scripts' >> /debug.sh && \
+    echo 'echo "App package.json scripts:"' >> /debug.sh && \
+    echo 'cd /app/apps/app && cat package.json | grep -A10 scripts' >> /debug.sh && \
+    echo 'echo "Now starting the actual app..."' >> /debug.sh && \
+    echo 'cd /app/apps/app && exec bun run start' >> /debug.sh && \
+    chmod +x /debug.sh
+
 WORKDIR /app/apps/app
-CMD ["bun", "run", "start"]
+CMD ["/debug.sh"]
