@@ -3,6 +3,14 @@ import './src/env.mjs';
 
 const config: NextConfig = {
   transpilePackages: ['@trycompai/db'],
+  
+  // Add environment variables for client-side
+  env: {
+    NEXT_PUBLIC_BETTER_AUTH_URL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL || 'https://compai-production.up.railway.app',
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'https://compai-production.up.railway.app',
+    NEXT_PUBLIC_PORTAL_URL: process.env.NEXT_PUBLIC_PORTAL_URL || 'https://compai-production.up.railway.app',
+  },
+  
   images: {
     remotePatterns: [
       {
@@ -11,6 +19,7 @@ const config: NextConfig = {
       },
     ],
   },
+  
   async rewrites() {
     return [
       {
@@ -27,6 +36,7 @@ const config: NextConfig = {
       },
     ];
   },
+  
   async headers() {
     return [
       {
@@ -54,6 +64,7 @@ const config: NextConfig = {
       },
     ];
   },
+  
   skipTrailingSlashRedirect: true,
 };
 
