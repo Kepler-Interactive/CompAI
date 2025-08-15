@@ -3,7 +3,7 @@
 # =============================================================================
 FROM oven/bun:1.2.8 AS deps
 
-ENV REBUILD_DATE="2025-08-15"
+ENV REBUILD_DATE="2025-08-15-v2"
 
 WORKDIR /app
 
@@ -50,53 +50,7 @@ RUN cd packages/db && bunx prisma generate
 CMD ["bunx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
 
 # =============================================================================
-# STAGE 3: App Builder
-# =============================================================================
-FROM deps AS app-builder
-
-WORKDIR /app
-
-# Copy all source code needed for build
-COPY packages ./packages
-COPY apps/app ./apps/app
-
-# Generate Prisma client in the full workspace context
-RUN cd packages/db && bunx prisma generate
-
-# Build the app
-RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
-
-# =============================================================================
-# STAGE 4: App Production
-# =============================================================================
-FROM oven/bun:1.2.8 AS app
-
-WORKDIR /app
-
-# Install PostgreSQL client for psql command
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
-
-# Copy the built app and all necessary dependencies from builder
-COPY --from=app-builder /app/apps/app/.next ./apps/app/.next
-COPY --from=app-builder /app/apps/app/package.json ./apps/app/
-COPY --from=app-builder /app/package.json ./
-COPY --from=app-builder /app/node_modules ./node_modules
-COPY --from=app-builder /app/packages ./packages
-
-# Create a startup script that runs DB setup and then the app
-RUN echo '#!/bin/sh' > /start.sh && \
-    echo 'echo "Checking Verification table..."' >> /start.sh && \
-    echo 'psql "$DATABASE_URL" -tAc "SELECT 1 FROM \\"Verification\\" LIMIT 1" >/dev/null 2>&1 || (cd /app/packages/db && bunx prisma db push --accept-data-loss --schema prisma/schema.prisma)' >> /start.sh && \
-    echo 'cd /app/packages/db && bunx prisma migrate deploy --schema prisma/schema.prisma' >> /start.sh && \
-    echo 'echo "Starting application..."' >> /start.sh && \
-    echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
-    chmod +x /start.sh
-
-EXPOSE 3000
-CMD ["/start.sh"]
-
-# =============================================================================
-# STAGE 5: Portal Builder
+# STAGE 3: Portal Builder
 # =============================================================================
 FROM deps AS portal-builder
 
@@ -113,7 +67,7 @@ RUN cd packages/db && bunx prisma generate
 RUN cd apps/portal && SKIP_ENV_VALIDATION=true bun run build
 
 # =============================================================================
-# STAGE 6: Portal Production
+# STAGE 4: Portal Production
 # =============================================================================
 FROM oven/bun:1.2.8 AS portal
 
@@ -127,4 +81,46 @@ COPY --from=portal-builder /app/node_modules ./node_modules
 COPY --from=portal-builder /app/packages ./packages
 
 EXPOSE 3000
-CMD ["bun", "run", "--cwd", "apps/portal", "start"] 
+CMD ["bun", "run", "--cwd", "apps/portal", "start"]
+
+# =============================================================================
+# STAGE 5: App Builder
+# =============================================================================
+FROM deps AS app-builder
+
+WORKDIR /app
+
+# Copy all source code needed for build
+COPY packages ./packages
+COPY apps/app ./apps/app
+
+# Generate Prisma client in the full workspace context
+RUN cd packages/db && bunx prisma generate
+
+# Build the app
+RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
+
+# =============================================================================
+# STAGE 6: App Production (DEFAULT - This is now last!)
+# =============================================================================
+FROM oven/bun:1.2.8 AS app
+
+WORKDIR /app
+
+# Copy the built app and all necessary dependencies from builder
+COPY --from=app-builder /app/apps/app/.next ./apps/app/.next
+COPY --from=app-builder /app/apps/app/package.json ./apps/app/
+COPY --from=app-builder /app/package.json ./
+COPY --from=app-builder /app/node_modules ./node_modules
+COPY --from=app-builder /app/packages ./packages
+
+# Simple start script using bunx for migrations
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'echo "Running database setup..."' >> /start.sh && \
+    echo 'cd /app/packages/db && bunx prisma db push --accept-data-loss' >> /start.sh && \
+    echo 'echo "Starting application..."' >> /start.sh && \
+    echo 'cd /app && exec bun run --cwd apps/app start' >> /start.sh && \
+    chmod +x /start.sh
+
+EXPOSE 3000
+CMD ["/start.sh"]
