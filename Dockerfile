@@ -3,7 +3,7 @@
 # =============================================================================
 FROM oven/bun:1.2.8 AS deps
 
-ENV REBUILD_DATE="2025-08-15-v3"
+ENV REBUILD_DATE="2025-08-15-v4"
 
 WORKDIR /app
 
@@ -30,49 +30,71 @@ RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true bun install
 # =============================================================================
 # STAGE 2: App Builder
 # =============================================================================
-FROM deps AS app-builder
+FROM node:20-slim AS app-builder
 
 WORKDIR /app
+
+# Install bun in Node image
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://bun.sh/install | bash && \
+    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/bun.lock ./bun.lock
 
 # Copy all source code needed for build
 COPY packages ./packages
 COPY apps/app ./apps/app
 
-# Install npm for Prisma generation (workaround for Bun crash)
-RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
-
-# Generate Prisma client using npx instead of bunx
+# Generate Prisma client using npx (Node is available)
 RUN cd packages/db && npx prisma generate
 
-# Build the app
+# Build the app using bun
 RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
 
 # =============================================================================
 # STAGE 3: Portal Builder
 # =============================================================================
-FROM deps AS portal-builder
+FROM node:20-slim AS portal-builder
 
 WORKDIR /app
+
+# Install bun in Node image
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://bun.sh/install | bash && \
+    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/bun.lock ./bun.lock
 
 # Copy all source code needed for build
 COPY packages ./packages
 COPY apps/portal ./apps/portal
 
-# Install npm for Prisma generation (workaround for Bun crash)
-RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
-
-# Generate Prisma client using npx instead of bunx
+# Generate Prisma client using npx (Node is available)
 RUN cd packages/db && npx prisma generate
 
-# Build the portal
+# Build the portal using bun
 RUN cd apps/portal && SKIP_ENV_VALIDATION=true bun run build
 
 # =============================================================================
 # STAGE 4: Portal Production (Named stage for explicit selection)
 # =============================================================================
-FROM oven/bun:1.2.8 AS portal-production
+FROM node:20-slim AS portal-production
 
 WORKDIR /app
+
+# Install bun
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://bun.sh/install | bash && \
+    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy package files first
 COPY --from=portal-builder /app/package.json ./
@@ -85,10 +107,7 @@ COPY --from=portal-builder /app/apps/portal ./apps/portal
 COPY --from=portal-builder /app/node_modules ./node_modules
 COPY --from=portal-builder /app/packages ./packages
 
-# Debug: List contents to verify structure
-RUN ls -la /app && ls -la /app/apps && ls -la /app/apps/portal
-
-# Start from the app root, not apps/portal
+# Start from the app root
 WORKDIR /app
 
 EXPOSE 3000
@@ -97,15 +116,12 @@ CMD ["bun", "run", "--cwd", "apps/portal", "start"]
 # =============================================================================
 # STAGE 5: Ultra-Minimal Migrator - Only Prisma
 # =============================================================================
-FROM oven/bun:1.2.8 AS migrator
+FROM node:20-slim AS migrator
 
 WORKDIR /app
 
 # Copy Prisma schema and migration files
 COPY packages/db/prisma ./packages/db/prisma
-
-# Install npm for Prisma (workaround for Bun crash)
-RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
 
 # Create minimal package.json for Prisma
 RUN echo '{"name":"migrator","type":"module","dependencies":{"prisma":"^6.13.0","@prisma/client":"^6.13.0"}}' > package.json
@@ -122,12 +138,15 @@ CMD ["npx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.p
 # =============================================================================
 # FINAL STAGE: App Production (DEFAULT - This is the default/final stage)
 # =============================================================================
-FROM oven/bun:1.2.8
+FROM node:20-slim
 
 WORKDIR /app
 
-# Install npm for Prisma at build time
-RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
+# Install bun
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://bun.sh/install | bash && \
+    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy package files first
 COPY --from=app-builder /app/package.json ./
@@ -139,9 +158,6 @@ COPY --from=app-builder /app/apps/app ./apps/app
 # Copy dependencies and packages
 COPY --from=app-builder /app/node_modules ./node_modules
 COPY --from=app-builder /app/packages ./packages
-
-# Debug: List contents to verify structure
-RUN ls -la /app && ls -la /app/apps && ls -la /app/apps/app
 
 # Simple start script using npx for migrations
 RUN echo '#!/bin/sh' > /start.sh && \
