@@ -8,7 +8,8 @@ WORKDIR /app
 # Copy workspace configuration
 COPY package.json bun.lock ./
 
-# Copy package.json files for all packages (exclude local db; use published @trycompai/db)
+# Copy package.json files for all packages (including local db)
+COPY packages/db/package.json ./packages/db/
 COPY packages/kv/package.json ./packages/kv/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/email/package.json ./packages/email/
@@ -25,124 +26,95 @@ COPY apps/portal/package.json ./apps/portal/
 RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true bun install
 
 # =============================================================================
-# STAGE 2: Ultra-Minimal Migrator - Only Prisma
+# STAGE 2: App Builder
 # =============================================================================
-FROM oven/bun:1.2.8 AS migrator
+FROM node:20-slim AS app-builder
 
 WORKDIR /app
 
-# Copy local Prisma schema and migrations from workspace
-COPY packages/db/prisma ./packages/db/prisma
+# Install bun in Node image for compatibility
+RUN apt-get update && apt-get install -y curl unzip && \
+    curl -fsSL https://bun.sh/install | bash && \
+    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
+    rm -rf /var/lib/apt/lists/*
 
-# Create minimal package.json for Prisma runtime (also used by seeder)
-RUN echo '{"name":"migrator","type":"module","dependencies":{"prisma":"^6.14.0","@prisma/client":"^6.14.0","@trycompai/db":"^1.3.4","zod":"^3.25.7"}}' > package.json
-
-# Install ONLY Prisma dependencies
-RUN bun install
-
-# Ensure Prisma can find migrations relative to the published schema path
-# We copy the local migrations into the published package's dist directory
-RUN cp -R packages/db/prisma/migrations node_modules/@trycompai/db/dist/
-
-# Run migrations against the combined schema published by @trycompai/db
-RUN echo "Running migrations against @trycompai/db combined schema"
-CMD ["bunx", "prisma", "migrate", "deploy", "--schema=node_modules/@trycompai/db/dist/schema.prisma"]
-
-# =============================================================================
-# STAGE 3: App Builder
-# =============================================================================
-FROM deps AS app-builder
-
-WORKDIR /app
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/bun.lock ./bun.lock
 
 # Copy all source code needed for build
 COPY packages ./packages
 COPY apps/app ./apps/app
 
-# Bring in node_modules for build and prisma prebuild
-COPY --from=deps /app/node_modules ./node_modules
+# Generate Prisma client using npx (Node is available)
+RUN cd packages/db && npx prisma generate
 
-# Ensure Next build has required public env at build-time
+# Set build-time environment variables for Next.js
 ARG NEXT_PUBLIC_BETTER_AUTH_URL
+ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_PORTAL_URL
-ARG NEXT_PUBLIC_POSTHOG_KEY
-ARG NEXT_PUBLIC_POSTHOG_HOST
-ARG NEXT_PUBLIC_IS_DUB_ENABLED
-ARG NEXT_PUBLIC_GTM_ID
-ARG NEXT_PUBLIC_LINKEDIN_PARTNER_ID
-ARG NEXT_PUBLIC_LINKEDIN_CONVERSION_ID
-ARG NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_LABEL
-ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_BETTER_AUTH_URL=$NEXT_PUBLIC_BETTER_AUTH_URL \
+    NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL \
     NEXT_PUBLIC_PORTAL_URL=$NEXT_PUBLIC_PORTAL_URL \
-    NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY \
-    NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST \
-    NEXT_PUBLIC_IS_DUB_ENABLED=$NEXT_PUBLIC_IS_DUB_ENABLED \
-    NEXT_PUBLIC_GTM_ID=$NEXT_PUBLIC_GTM_ID \
-    NEXT_PUBLIC_LINKEDIN_PARTNER_ID=$NEXT_PUBLIC_LINKEDIN_PARTNER_ID \
-    NEXT_PUBLIC_LINKEDIN_CONVERSION_ID=$NEXT_PUBLIC_LINKEDIN_CONVERSION_ID \
-    NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_LABEL=$NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_LABEL \
-    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
-    NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production \
     NEXT_OUTPUT_STANDALONE=true \
-    NODE_OPTIONS=--max_old_space_size=6144
+    NODE_OPTIONS=--max_old_space_size=4096
 
-# Build the app
+# Build the app with standalone output
 RUN cd apps/app && SKIP_ENV_VALIDATION=true bun run build
 
 # =============================================================================
-# STAGE 4: App Production
+# STAGE 3: Production Runtime (using standalone for smaller image)
 # =============================================================================
-FROM node:22-alpine AS app
+FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Copy Next standalone output
+# Install curl for health checks and potential seed operations
+RUN apk add --no-cache curl
+
+# Copy the standalone Next.js build
 COPY --from=app-builder /app/apps/app/.next/standalone ./
 COPY --from=app-builder /app/apps/app/.next/static ./apps/app/.next/static
 COPY --from=app-builder /app/apps/app/public ./apps/app/public
 
+# Copy Prisma schema for potential runtime migrations
+COPY --from=app-builder /app/packages/db/prisma ./packages/db/prisma
 
+# Create a startup script that handles migrations and seeding
+RUN echo '#!/bin/sh' > /startup.sh && \
+    echo 'echo "Starting CompAI Application..."' >> /startup.sh && \
+    echo '' >> /startup.sh && \
+    echo '# Optional: Run database migrations (uncomment if needed)' >> /startup.sh && \
+    echo '# cd /app/packages/db && npx prisma migrate deploy || echo "Migration skipped"' >> /startup.sh && \
+    echo '' >> /startup.sh && \
+    echo '# Optional: Seed frameworks after app starts (runs in background)' >> /startup.sh && \
+    echo '(sleep 30 && curl -s http://localhost:3000/api/frameworks/seed || echo "Seed check complete") &' >> /startup.sh && \
+    echo '' >> /startup.sh && \
+    echo 'echo "Starting Next.js server..."' >> /startup.sh && \
+    echo 'exec node apps/app/server.js' >> /startup.sh && \
+    chmod +x /startup.sh
+
+# Expose port
 EXPOSE 3000
-CMD ["node", "apps/app/server.js"]
+
+# Use the startup script
+CMD ["/startup.sh"]
 
 # =============================================================================
-# STAGE 5: Portal Builder
+# STAGE 4: Migrator (optional - can be used as separate service)
 # =============================================================================
-FROM deps AS portal-builder
+FROM node:20-slim AS migrator
 
 WORKDIR /app
 
-# Copy all source code needed for build
-COPY packages ./packages
-COPY apps/portal ./apps/portal
+# Install Prisma CLI
+RUN npm install -g prisma@6.14.0 @prisma/client@6.14.0
 
-# Bring in node_modules for build and prisma prebuild
-COPY --from=deps /app/node_modules ./node_modules
+# Copy Prisma schema and migrations
+COPY packages/db/prisma ./packages/db/prisma
 
-# Ensure Next build has required public env at build-time
-ARG NEXT_PUBLIC_BETTER_AUTH_URL
-ENV NEXT_PUBLIC_BETTER_AUTH_URL=$NEXT_PUBLIC_BETTER_AUTH_URL \
-    NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production \
-    NEXT_OUTPUT_STANDALONE=true \
-    NODE_OPTIONS=--max_old_space_size=6144
-
-# Build the portal
-RUN cd apps/portal && SKIP_ENV_VALIDATION=true bun run build
-
-# =============================================================================
-# STAGE 6: Portal Production
-# =============================================================================
-FROM node:22-alpine AS portal
-
-WORKDIR /app
-
-# Copy Next standalone output for portal
-COPY --from=portal-builder /app/apps/portal/.next/standalone ./
-COPY --from=portal-builder /app/apps/portal/.next/static ./apps/portal/.next/static
-COPY --from=portal-builder /app/apps/portal/public ./apps/portal/public
-
-EXPOSE 3000
-CMD ["node", "apps/portal/server.js"]
-
-# (Trigger.dev hosted; no local runner stage)
+# Run migrations
+CMD ["prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]
