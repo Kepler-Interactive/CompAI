@@ -72,8 +72,8 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Install curl for health checks and potential seed operations
-RUN apk add --no-cache curl
+# Install OpenSSL and curl for Prisma and health checks
+RUN apk add --no-cache openssl curl
 
 # Copy the standalone Next.js build
 COPY --from=app-builder /app/apps/app/.next/standalone ./
@@ -83,18 +83,29 @@ COPY --from=app-builder /app/apps/app/public ./apps/app/public
 # Copy Prisma schema for potential runtime migrations
 COPY --from=app-builder /app/packages/db/prisma ./packages/db/prisma
 
-# Create a startup script that handles migrations and seeding
+# Create a simpler startup script
 RUN echo '#!/bin/sh' > /startup.sh && \
     echo 'echo "Starting CompAI Application..."' >> /startup.sh && \
+    echo 'echo "Current directory: $(pwd)"' >> /startup.sh && \
+    echo 'echo "Directory contents:"' >> /startup.sh && \
+    echo 'ls -la' >> /startup.sh && \
+    echo 'echo "Apps directory:"' >> /startup.sh && \
+    echo 'ls -la apps/' >> /startup.sh && \
+    echo 'echo "Looking for server.js:"' >> /startup.sh && \
+    echo 'find . -name "server.js" -type f' >> /startup.sh && \
     echo '' >> /startup.sh && \
-    echo '# Optional: Run database migrations (uncomment if needed)' >> /startup.sh && \
-    echo '# cd /app/packages/db && npx prisma migrate deploy || echo "Migration skipped"' >> /startup.sh && \
-    echo '' >> /startup.sh && \
-    echo '# Optional: Seed frameworks after app starts (runs in background)' >> /startup.sh && \
-    echo '(sleep 30 && curl -s http://localhost:3000/api/frameworks/seed || echo "Seed check complete") &' >> /startup.sh && \
-    echo '' >> /startup.sh && \
-    echo 'echo "Starting Next.js server..."' >> /startup.sh && \
-    echo 'exec node apps/app/server.js' >> /startup.sh && \
+    echo '# Start the server' >> /startup.sh && \
+    echo 'if [ -f "apps/app/server.js" ]; then' >> /startup.sh && \
+    echo '  echo "Starting from apps/app/server.js"' >> /startup.sh && \
+    echo '  exec node apps/app/server.js' >> /startup.sh && \
+    echo 'elif [ -f "server.js" ]; then' >> /startup.sh && \
+    echo '  echo "Starting from root server.js"' >> /startup.sh && \
+    echo '  exec node server.js' >> /startup.sh && \
+    echo 'else' >> /startup.sh && \
+    echo '  echo "ERROR: server.js not found!"' >> /startup.sh && \
+    echo '  echo "Falling back to bun start"' >> /startup.sh && \
+    echo '  cd apps/app && bun run start' >> /startup.sh && \
+    echo 'fi' >> /startup.sh && \
     chmod +x /startup.sh
 
 # Expose port
